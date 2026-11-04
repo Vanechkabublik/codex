@@ -1,0 +1,18 @@
+export enum Role {
+  OFFER_OWNER = 'OFFER_OWNER',
+  PRODUCT_MANAGER = 'PRODUCT_MANAGER',
+  ANALYST = 'ANALYST',
+  OPERATIONS_MANAGER = 'OPERATIONS_MANAGER',
+  CLIENT = 'CLIENT',
+  ADMIN = 'ADMIN',
+}
+export const REVIEWER_ROLES: readonly Role[] = [
+  Role.PRODUCT_MANAGER,
+  Role.ANALYST,
+  Role.OPERATIONS_MANAGER,
+];
+export const STAFF_ROLES: readonly Role[] = [
+  Role.OFFER_OWNER,
+  ...REVIEWER_ROLES,
+  Role.ADMIN,
+];

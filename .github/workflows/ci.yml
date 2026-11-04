@@ -1,0 +1,96 @@
+name: Backend quality and demo
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cashback
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: cashback_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cashback -d cashback_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: cashback
+      DB_PASSWORD: ci-only-password
+      DB_DATABASE: cashback_ci
+      DB_SSL: 'false'
+      # These keys protect only disposable CI fixtures; never deployed.
+      JWT_ACCESS_SECRET: ci-only-access-secret-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Clean install
+        run: npm ci
+      - name: Formatting and lint
+        run: |
+          npm run format:check
+          npm run lint
+      - name: Build
+        run: npm run build
+      - name: Apply migrations on clean service database and check schema
+        run: |
+          npm run migration:run
+          npm run migration:check
+          npm run seed
+      - name: Unit and PostgreSQL e2e tests with business coverage
+        run: npm run test:coverage
+      - name: Build Docker demo and verify full HTTP business flow
+        env:
+          COMPOSE_PROJECT_NAME: cashback-ci-demo
+          DB_DATABASE: cashback_ci_demo
+          DB_PORT: 5433
+          PORT: 3001
+        run: npm run demo:up
+      - name: Collect sanitized failure diagnostics
+        if: failure()
+        env:
+          COMPOSE_PROJECT_NAME: cashback-ci-demo
+          DB_DATABASE: cashback_ci_demo
+          DB_PORT: 5433
+          PORT: 3001
+        run: |
+          mkdir -p artifacts
+          docker compose ps > artifacts/compose-status.txt
+          docker compose logs --no-color --tail=150 backend > artifacts/backend-startup.txt
+      - name: Upload test, coverage and demo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-verification
+          path: |
+            coverage/
+            artifacts/demo-flow.json
+            artifacts/compose-status.txt
+            artifacts/backend-startup.txt
+            docs/testing.md
+          if-no-files-found: warn
+      - name: Stop temporary demo containers
+        if: always()
+        env:
+          COMPOSE_PROJECT_NAME: cashback-ci-demo
+          DB_DATABASE: cashback_ci_demo
+          DB_PORT: 5433
+          PORT: 3001
+        run: docker compose down
