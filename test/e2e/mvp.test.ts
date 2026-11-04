@@ -1013,11 +1013,50 @@ void describe(
       assert.equal(health.status, 'ok');
       assert.equal(health.database, 'up');
       const document = await request<{
-        paths: Record<string, unknown>;
+        paths: Record<
+          string,
+          {
+            get?: {
+              parameters?: {
+                name: string;
+                schema: { type?: string; default?: number };
+              }[];
+            };
+          }
+        >;
         components: { schemas: Record<string, unknown> };
       }>('GET', '/docs-json');
       assert.ok(document.paths['/api/offers/{id}/submit']);
       assert.ok(document.components.schemas.CreatePurchaseDto);
+      // Regression: Object schemas here make Swagger UI remain on Loading before sending HTTP.
+      for (const path of [
+        '/api/offers',
+        '/api/users',
+        '/api/activations',
+        '/api/purchases',
+        '/api/offers/{id}/rounds',
+        '/api/offers/{id}/history',
+      ]) {
+        const parameters = document.paths[path]?.get?.parameters;
+        assert.ok(
+          parameters,
+          path + ': pagination parameters must be documented',
+        );
+        for (const [name, defaultValue] of [
+          ['page', 1],
+          ['limit', 20],
+        ] as const) {
+          const parameter: (typeof parameters)[number] | undefined =
+            parameters.find((item) => item.name === name);
+          assert.ok(parameter, path + ': missing ' + name);
+          assert.equal(
+            parameter.schema.type,
+            'integer',
+            path + ': ' + name + ' must be a scalar integer for Swagger UI',
+          );
+          assert.equal(parameter.schema.default, defaultValue);
+        }
+      }
       const rounds = await db.getRepository(ApprovalRound).count();
       assert.ok(rounds > 0);
     });
